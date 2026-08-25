@@ -36,5 +36,61 @@
 			{ "name": "RATE_LIMIT_MCP",         "type": "ratelimit", "namespace_id": "3004", "simple": { "limit": 60, "period": 60 } },
 			{ "name": "RATE_LIMIT_OAUTH_START", "type": "ratelimit", "namespace_id": "3005", "simple": { "limit": 5,  "period": 60 } }
 		]
+	},
+	// Default/no-`--env` build only. Named environments below do NOT inherit this —
+	// each redeclares its own SERVER_NAME_CONST. This top-level one exists purely so
+	// `tsc`/`vitest run` (which load this file with no --env, e.g. test/version.spec.ts
+	// importing src/index.ts) don't hit a ReferenceError for an undefined global.
+	"define": { "SERVER_NAME_CONST": "\"outlook-mcp\"" },
+
+	// Two real deployments of this Worker, one per business. Wrangler named
+	// environments do NOT inherit `vars`, `kv_namespaces`, `unsafe.bindings` or
+	// `define` from the top level — every one of those four is redeclared in full
+	// in both blocks below. See test/wrangler-env-disjointness.spec.ts, which fails
+	// the build if these two blocks ever end up sharing a KV namespace, worker name,
+	// rate-limit namespace, or SERVER_NAME_CONST.
+	"env": {
+		"future-comms": {
+			"name": "outlook-mcp-future-comms",
+			"vars": {
+				"MICROSOFT_CLIENT_ID": "757f4c34-e19e-4ce1-8522-ee4b3e1dcea9",
+				"MICROSOFT_TENANT_ID": "4f03590c-1765-4fd6-b61a-6cdf7aabfbc1",
+				"WORKER_URL": "https://outlook-mcp-future-comms.sidd-21c.workers.dev"
+			},
+			"kv_namespaces": [
+				{ "binding": "OAUTH_KV", "id": "772924f932744f5d925c6990df843c57" }
+			],
+			"unsafe": {
+				"bindings": [
+					{ "name": "RATE_LIMIT_APPROVE",     "type": "ratelimit", "namespace_id": "3601", "simple": { "limit": 5,  "period": 60 } },
+					{ "name": "RATE_LIMIT_TOKEN",       "type": "ratelimit", "namespace_id": "3602", "simple": { "limit": 10, "period": 60 } },
+					{ "name": "RATE_LIMIT_REGISTER",    "type": "ratelimit", "namespace_id": "3603", "simple": { "limit": 10, "period": 60 } },
+					{ "name": "RATE_LIMIT_MCP",         "type": "ratelimit", "namespace_id": "3604", "simple": { "limit": 60, "period": 60 } },
+					{ "name": "RATE_LIMIT_OAUTH_START", "type": "ratelimit", "namespace_id": "3605", "simple": { "limit": 5,  "period": 60 } }
+				]
+			},
+			"define": { "SERVER_NAME_CONST": "\"outlook-mcp-future-comms\"" }
+		},
+		"total-telco": {
+			"name": "outlook-mcp-total-telco",
+			"vars": {
+				"MICROSOFT_CLIENT_ID": "3667d416-9015-43ad-aecb-a43fb86c8789",
+				"MICROSOFT_TENANT_ID": "28798748-c49a-4cd1-922f-7b4ccb6a63e4",
+				"WORKER_URL": "https://outlook-mcp-total-telco.sidd-21c.workers.dev"
+			},
+			"kv_namespaces": [
+				{ "binding": "OAUTH_KV", "id": "33488e7a7578485484d7531e3ea28781" }
+			],
+			"unsafe": {
+				"bindings": [
+					{ "name": "RATE_LIMIT_APPROVE",     "type": "ratelimit", "namespace_id": "3701", "simple": { "limit": 5,  "period": 60 } },
+					{ "name": "RATE_LIMIT_TOKEN",       "type": "ratelimit", "namespace_id": "3702", "simple": { "limit": 10, "period": 60 } },
+					{ "name": "RATE_LIMIT_REGISTER",    "type": "ratelimit", "namespace_id": "3703", "simple": { "limit": 10, "period": 60 } },
+					{ "name": "RATE_LIMIT_MCP",         "type": "ratelimit", "namespace_id": "3704", "simple": { "limit": 60, "period": 60 } },
+					{ "name": "RATE_LIMIT_OAUTH_START", "type": "ratelimit", "namespace_id": "3705", "simple": { "limit": 5,  "period": 60 } }
+				]
+			},
+			"define": { "SERVER_NAME_CONST": "\"outlook-mcp-total-telco\"" }
+		}
 	}
 }

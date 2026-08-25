@@ -18,7 +18,13 @@ import { dispatchToolCall, toolDefinitions } from "./tools/index.js";
 import { encodeOneDrivePath } from "./tools/_shared.js";
 import type { Env, OutlookTokenData } from "./types.js";
 
-const SERVER_NAME = "outlook-mcp";
+// Injected per-environment via Wrangler's esbuild `define` (see wrangler.jsonc's
+// top-level and per-env `define.SERVER_NAME_CONST`). Differentiates the name
+// each deployment announces in the MCP handshake — without this, both the
+// Future Communications and Total Telco connectors show up in Claude as the
+// same "outlook-mcp", indistinguishable from each other.
+declare const SERVER_NAME_CONST: string;
+const SERVER_NAME = SERVER_NAME_CONST;
 /**
  * Reported to clients in the MCP handshake. MUST match package.json.
  *

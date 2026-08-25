@@ -26,6 +26,8 @@ graphify-out/
 # Never commit: a fork that inherited this file would send mail carrying the
 # maintainer's name, phone number, and booking links.
 signature-block.html
+signature-future-comms.html
+signature-total-telco.html
 
 # Logs
 *.log
@@ -33,3 +35,4 @@ signature-block.html
 # OS
 .DS_Store
 Thumbs.db
+.session-values.local
