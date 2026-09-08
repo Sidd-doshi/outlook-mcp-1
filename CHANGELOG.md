@@ -7,6 +7,12 @@ two from drifting.
 Entries before 2.5.0 were reconstructed from commit history after the fact, so
 they summarise what shipped rather than what was written down at the time.
 
+Releases are cut with `npm run release <version>`, which turns the **Unreleased**
+section below into a dated heading, bumps `package.json` and `SERVER_VERSION`
+together, commits, and tags. Add to Unreleased as you go.
+
+## Unreleased
+
 ## 2.6.0 — 2026-09-08
 
 ### Added

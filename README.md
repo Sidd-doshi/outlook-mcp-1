@@ -307,6 +307,38 @@ npm run dev                       # wrangler dev — local at http://localhost:8
 - `CLOUDFLARE_API_TOKEN` — create at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) (use the "Edit Cloudflare Workers" template)
 - `CLOUDFLARE_ACCOUNT_ID` — find at the bottom-right of your Cloudflare dashboard
 
+## Releasing
+
+```bash
+npm run release 2.7.0
+git push origin main v2.7.0   # pushing main deploys
+```
+
+`npm run release` does the whole thing in one commit: runs typecheck and tests,
+turns the **Unreleased** section of [CHANGELOG.md](CHANGELOG.md) into a dated
+heading, bumps `package.json` and `SERVER_VERSION` together, commits, and tags
+`vX.Y.Z`. It refuses to run on a dirty tree, off `main`, out of sync with origin,
+or with an empty Unreleased section. It deliberately doesn't push — on this repo
+a push to `main` is a deploy.
+
+**The version bump is the release commit, and the tag points at it.** That's the
+rule, and it's worth stating because breaking it costs real time. Versions used
+to be bumped whenever it occurred to someone: 2.4.0 was bumped at the *start* of
+its work and then collected two months of fixes under the same number, while
+2.5.0 and 2.6.0 were bumped at the *end*. The result is that
+`git show <commit>:package.json` can't tell you which release a change is in —
+the Teams transcript fix lives in a commit whose `package.json` still reads
+2.4.0, but it shipped in 2.5.0. Only `git tag --contains <commit>` is reliable,
+and that only works if the tags were placed correctly to begin with.
+
+A `verify-tag` workflow rejects any pushed tag whose commit disagrees with
+`package.json`, so a hand-made tag can't reintroduce the drift.
+
+Add to the Unreleased section as you go, rather than reconstructing it later.
+Everything before 2.5.0 in the changelog had to be rebuilt from commit subjects
+months after the fact, and two fixes sat under the wrong release until their
+dates were checked against the release boundaries.
+
 ## Contributing
 
 Issues and PRs welcome at [github.com/doublebash/outlook-mcp](https://github.com/doublebash/outlook-mcp).
