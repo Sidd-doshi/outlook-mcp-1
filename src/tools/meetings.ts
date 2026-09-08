@@ -43,17 +43,34 @@ interface GraphEventOnlineMeeting {
 	isOnlineMeeting?: boolean;
 	onlineMeetingUrl?: string;
 	onlineMeeting?: { joinUrl?: string };
+	// `body.content` is the full message (HTML). `bodyPreview` is a plain-text
+	// excerpt Graph truncates at 255 characters — see extractJoinUrlFromBody.
+	body?: { content?: string; contentType?: string };
 	bodyPreview?: string;
 }
 
-// Pulls a Teams join URL out of an event's bodyPreview text. Used as a
-// fallback when Microsoft Graph's structured fields are empty — a real
-// quirk observed in production: events created via the legacy Outlook Teams
-// add-in (or some mobile flows) can have `isOnlineMeeting: true` while both
-// `onlineMeetingUrl` and `onlineMeeting.joinUrl` are null; the URL only
-// lives as plain text in the body.
+// Pulls a Teams join URL out of an event's body text. Used as a fallback when
+// Microsoft Graph's structured fields are empty — a real quirk observed in
+// production: events created via the legacy Outlook Teams add-in (or some
+// mobile flows) can have `isOnlineMeeting: true` while both
+// `onlineMeetingUrl` and `onlineMeeting.joinUrl` are null; the URL only lives
+// as text in the body.
 //
-// Matches both:
+// ── Feed this `body.content`, not `bodyPreview` ───────────────────────────────
+// Graph truncates `bodyPreview` to 255 characters. A Teams invite whose body
+// opens with the organiser's own note ("Hey Ashish, I've booked us at…") pushes
+// the Teams block past that ceiling, and the preview ends mid-URL — literally
+// `https://teams.m`. No match, and the meeting is dropped as if it were never
+// online. Meetings with an agenda written on them are exactly the ones worth
+// finding, so this silently lost the useful half of the calendar.
+//
+// `body.content` is HTML, where the URL appears inside `<a href="…">`. Entities
+// are decoded first so that a long-form `?context=…&…` link survives as one
+// URL; the `"`/`'` terminators below then stop at the attribute delimiter.
+// Note the raw HTML is scanned, NOT htmlToText output — that strips whole tags,
+// href and all.
+//
+// Matches:
 //   - new short format: https://teams.microsoft.com/meet/<code>?p=<passcode>
 //   - legacy long form: https://teams.microsoft.com/l/meetup-join/<thread>@thread.v2/0?context=...
 //   - personal account variant: https://teams.live.com/meet/...
@@ -64,22 +81,33 @@ interface GraphEventOnlineMeeting {
 // don't match these path prefixes).
 export function extractJoinUrlFromBody(body: string | undefined): string | null {
 	if (!body) return null;
+	const decoded = body
+		.replace(/&amp;/gi, "&")
+		.replace(/&#38;/g, "&")
+		.replace(/&quot;/gi, '"')
+		.replace(/&#39;|&apos;/gi, "'");
 	const re =
 		/https?:\/\/(?:teams\.microsoft\.com|teams\.live\.com)\/(?:l\/meetup-join|meet)\/[^\s<>"']+/;
-	const match = body.match(re);
-	return match ? match[0] : null;
+	const match = decoded.match(re);
+	if (!match) return null;
+	// Trailing punctuation that reads as prose, not URL ("… /meet/123.").
+	return match[0].replace(/[.,;:)\]]+$/, "");
 }
 
 // Pull the join URL off a Graph event, trying the structured fields first
-// (cheapest, exact) and falling back to body-preview parsing. Returns null
-// if neither path yields a URL.
-function pickJoinUrlFromEvent(
-	event: GraphEventOnlineMeeting,
-): string | null {
+// (cheapest, exact), then the full body, then the truncated preview. Returns
+// null if no path yields a URL.
+//
+// `body` is only present when the caller selected it — the discovery listing
+// deliberately does not, and refetches per-event instead (see fetchEventBody).
+function pickJoinUrlFromEvent(event: GraphEventOnlineMeeting): string | null {
 	if (!event.isOnlineMeeting) return null;
 	const structured = event.onlineMeetingUrl ?? event.onlineMeeting?.joinUrl;
 	if (structured) return structured;
-	return extractJoinUrlFromBody(event.bodyPreview);
+	return (
+		extractJoinUrlFromBody(event.body?.content) ??
+		extractJoinUrlFromBody(event.bodyPreview)
+	);
 }
 
 async function resolveJoinUrl(env: Env, ref: MeetingRef): Promise<string> {
@@ -90,15 +118,17 @@ async function resolveJoinUrl(env: Env, ref: MeetingRef): Promise<string> {
 		);
 	}
 
+	// `body`, not `bodyPreview`: this is a single event, so the full message
+	// costs one payload and is the only source that survives a long agenda.
 	const event = (await graphGet(env, `/me/events/${ref.calendar_event_id}`, {
-		$select: "isOnlineMeeting,onlineMeetingUrl,onlineMeeting,bodyPreview",
+		$select: "isOnlineMeeting,onlineMeetingUrl,onlineMeeting,body",
 	})) as GraphEventOnlineMeeting;
 
 	const joinUrl = pickJoinUrlFromEvent(event);
 	if (!joinUrl) {
 		throw ToolError.validation(
 			event.isOnlineMeeting
-				? "Calendar event is marked as a Teams online meeting but no joinUrl could be found in either the structured fields (onlineMeetingUrl, onlineMeeting.joinUrl) or the body preview. The Teams binding may be incomplete — try passing join_url directly if you can copy the meeting link from elsewhere."
+				? "Calendar event is marked as a Teams online meeting but no joinUrl could be found in either the structured fields (onlineMeetingUrl, onlineMeeting.joinUrl) or the message body. The Teams binding may be incomplete — try passing join_url directly if you can copy the meeting link from elsewhere."
 				: "Calendar event is not a Teams online meeting. Recordings and transcripts are only available for Teams meetings.",
 		);
 	}
@@ -304,6 +334,9 @@ interface GraphEventForDiscovery {
 	isOnlineMeeting?: boolean;
 	onlineMeetingUrl?: string;
 	onlineMeeting?: { joinUrl?: string };
+	// Absent from the listing (which selects bodyPreview); filled in per-event
+	// by the refetch in listRecentMeetingRecordingsImpl when preview falls short.
+	body?: { content?: string; contentType?: string };
 	bodyPreview?: string;
 	organizer?: { emailAddress?: { name?: string; address?: string } };
 }
@@ -321,6 +354,25 @@ interface DiscoveryRow {
 	organizer: string | undefined;
 }
 
+// Why a candidate produced no row. Returned to the caller in aggregate so a
+// blank result is self-diagnosing: "12 online meetings, 12 no_content" is a
+// quiet calendar, while "12 online meetings, 12 no_join_url" is a bug.
+//
+// `forbidden` is split out from `error` because it is neither a fault nor rare.
+// A meeting organised in someone else's tenant resolves to an onlineMeeting id
+// perfectly well, then answers 403 on /recordings and /transcripts: the id
+// encodes the organiser's tenant, and Graph won't read artifacts across that
+// boundary. Every calendar with external invites hits this on every call, and
+// counting it as an error makes a permanent, expected condition look broken.
+type SkipReason =
+	| "no_join_url"
+	| "unresolved_meeting"
+	| "no_content"
+	| "forbidden"
+	| "error";
+
+type DiscoveryOutcome = { row: DiscoveryRow } | { skipped: SkipReason };
+
 function computeDurationMinutes(
 	startIso: string | undefined,
 	endIso: string | undefined,
@@ -335,6 +387,12 @@ function computeDurationMinutes(
 const DISCOVERY_PAGE_SIZE = 200;
 const DISCOVERY_MAX_PAGES = 10;
 const DISCOVERY_MAX_CANDIDATES = 200;
+// How many candidates may have their full body refetched in one discovery call.
+// The listing deliberately selects the cheap truncated `bodyPreview`; only the
+// candidates that preview fails on cost a second request, so this caps a busy
+// calendar's worst case rather than the common one. In practice a month of
+// meetings needs one or two.
+const DISCOVERY_MAX_BODY_FETCHES = 25;
 
 // Collect Teams events in the window, newest first.
 //
@@ -415,16 +473,47 @@ export async function listRecentMeetingRecordingsImpl(
 		endIso,
 	);
 
+	// Recover the candidates whose join URL was cut off by the 255-character
+	// `bodyPreview` ceiling by refetching just those events' full bodies. Done
+	// before the main fan-out so a recovered event is indistinguishable from one
+	// that resolved cleanly from the listing.
+	const needsBody = events.filter((e) => e.id && pickJoinUrlFromEvent(e) === null);
+	const bodyFetched = needsBody.slice(0, DISCOVERY_MAX_BODY_FETCHES);
+	const bodyFetchSkipped = needsBody.length - bodyFetched.length;
+
+	// Recovered URLs are kept beside the events rather than written onto them.
+	// These objects come from the caller's page of Graph results, and a helper
+	// that quietly rewrites its input is the kind of thing that reads fine and
+	// then surprises whoever reuses the array.
+	const recoveredJoinUrls = new Map<string, string>();
+
+	await Promise.all(
+		bodyFetched.map(async (event) => {
+			const eventId = event.id as string;
+			try {
+				const full = (await graphGet(env, `/me/events/${eventId}`, {
+					$select: "body",
+				})) as { body?: { content?: string } };
+				const joinUrl = extractJoinUrlFromBody(full.body?.content);
+				if (joinUrl) recoveredJoinUrls.set(eventId, joinUrl);
+			} catch {
+				// Nothing recovered; the event falls through to no_join_url.
+			}
+		}),
+	);
+
 	// Per-event work: resolve onlineMeeting id, fetch recordings + transcripts.
-	// One failed event must not abort the whole call — return null and filter.
-	const rows = await Promise.all(
-		events.map(async (event): Promise<DiscoveryRow | null> => {
-			const joinUrl = pickJoinUrlFromEvent(event);
-			if (!joinUrl) return null;
+	// One failed event must not abort the whole call — record why and carry on.
+	const outcomes = await Promise.all(
+		events.map(async (event): Promise<DiscoveryOutcome> => {
+			const joinUrl =
+				pickJoinUrlFromEvent(event) ??
+				(event.id ? recoveredJoinUrls.get(event.id) ?? null : null);
+			if (!joinUrl) return { skipped: "no_join_url" };
 
 			try {
 				const meetingId = await lookupOnlineMeetingIdByJoinUrl(env, joinUrl);
-				if (!meetingId) return null;
+				if (!meetingId) return { skipped: "unresolved_meeting" };
 
 				const [recordingsResp, transcriptsResp] = await Promise.all([
 					graphGet(
@@ -440,7 +529,7 @@ export async function listRecentMeetingRecordingsImpl(
 				const recordings = recordingsResp.value ?? [];
 				const transcripts = transcriptsResp.value ?? [];
 				if (recordings.length === 0 && transcripts.length === 0) {
-					return null;
+					return { skipped: "no_content" };
 				}
 
 				// Sort key — prefer the latest recording's createdDateTime;
@@ -458,7 +547,7 @@ export async function listRecentMeetingRecordingsImpl(
 				const recordedAt =
 					latestRecordingAt ?? latestTranscriptAt ?? event.end?.dateTime;
 
-				return {
+				const row: DiscoveryRow = {
 					subject: event.subject,
 					recorded_at: recordedAt,
 					start: event.start?.dateTime,
@@ -473,15 +562,32 @@ export async function listRecentMeetingRecordingsImpl(
 					transcript_count: transcripts.length,
 					organizer: event.organizer?.emailAddress?.name,
 				};
-			} catch {
-				// Per-event failure (event without onlineMeeting binding, permission
-				// glitch, etc.) — skip and keep going.
-				return null;
+				return { row };
+			} catch (e) {
+				// Per-event failure — record it and keep going. A 403 is the
+				// cross-tenant boundary above, not something to go and fix.
+				if (e instanceof ToolError && e.status === 403) {
+					return { skipped: "forbidden" };
+				}
+				return { skipped: "error" };
 			}
 		}),
 	);
 
-	const withContent = rows.filter((r): r is DiscoveryRow => r !== null);
+	const withContent = outcomes
+		.filter((o): o is { row: DiscoveryRow } => "row" in o)
+		.map((o) => o.row);
+
+	const skipped: Record<SkipReason, number> = {
+		no_join_url: 0,
+		unresolved_meeting: 0,
+		no_content: 0,
+		forbidden: 0,
+		error: 0,
+	};
+	for (const outcome of outcomes) {
+		if ("skipped" in outcome) skipped[outcome.skipped] += 1;
+	}
 	withContent.sort((a, b) =>
 		(b.recorded_at ?? "").localeCompare(a.recorded_at ?? ""),
 	);
@@ -491,8 +597,10 @@ export async function listRecentMeetingRecordingsImpl(
 		within_days: withinDays,
 		events_scanned: scanned,
 		online_meetings: events.length,
+		bodies_refetched: bodyFetched.length,
 		with_content: withContent.length,
 		returned: top.length,
+		...skipped,
 	});
 
 	return {
@@ -501,6 +609,13 @@ export async function listRecentMeetingRecordingsImpl(
 		online_meetings: events.length,
 		count: top.length,
 		recordings: top,
+		// Diagnostics. `no_content` (nobody hit record) and `forbidden` (organised
+		// in another tenant) are both ordinary and permanent. `no_join_url`,
+		// `unresolved_meeting` and `error` are the ones worth looking into.
+		skipped,
+		...(bodyFetchSkipped > 0
+			? { body_fetch_limit_reached: bodyFetchSkipped }
+			: {}),
 	};
 }
 
