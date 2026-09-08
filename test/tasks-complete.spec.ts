@@ -14,11 +14,20 @@ vi.mock("../src/graph.js", () => ({
 	graphPutBinary: vi.fn(),
 }));
 
-import { graphGet, graphGetNextLink, graphPatch, graphPost } from "../src/graph.js";
+import {
+	graphDelete,
+	graphGet,
+	graphGetNextLink,
+	graphPatch,
+	graphPost,
+} from "../src/graph.js";
 import {
 	completeTaskImpl,
 	createTaskListImpl,
+	deleteTaskImpl,
+	deleteTaskListImpl,
 	listTasksImpl,
+	matchLists,
 	matchTasks,
 } from "../src/tools/tasks.js";
 
@@ -58,6 +67,7 @@ beforeEach(() => {
 	vi.mocked(graphGetNextLink).mockResolvedValue({ value: [] });
 	vi.mocked(graphPatch).mockResolvedValue({ id: "t1", status: "completed" });
 	vi.mocked(graphPost).mockResolvedValue({ id: "list-new", displayName: "Renovation" });
+	vi.mocked(graphDelete).mockResolvedValue(undefined);
 });
 
 describe("matchTasks", () => {
@@ -239,5 +249,156 @@ describe("create_task_list", () => {
 
 		await expect(createTaskListImpl(env, { name: "   " })).rejects.toThrow(/cannot be empty/);
 		expect(graphPost).not.toHaveBeenCalled();
+	});
+});
+
+describe("matchLists", () => {
+	it("matches a name as a case-insensitive substring", () => {
+		expect(matchLists(lists, { name: "flagged" }).map(l => l.id)).toEqual([FLAGGED_LIST]);
+	});
+
+	it("matches an id exactly", () => {
+		expect(matchLists(lists, { list_id: DEFAULT_LIST }).map(l => l.id)).toEqual([DEFAULT_LIST]);
+	});
+
+	it("returns every candidate rather than guessing", () => {
+		const many = [
+			{ id: "a", displayName: "Work" },
+			{ id: "b", displayName: "Work archive" },
+		];
+		expect(matchLists(many, { name: "work" })).toHaveLength(2);
+	});
+});
+
+describe("delete_task", () => {
+	it("deletes the matched task", async () => {
+		routeTasks({ [DEFAULT_LIST]: [task("t1", "Book flights")] });
+
+		const result = (await deleteTaskImpl(env, { title: "book flights" })) as {
+			success: boolean;
+		};
+
+		expect(result.success).toBe(true);
+		const [, path] = vi.mocked(graphDelete).mock.calls[0] as [unknown, string];
+		expect(path).toBe(`/me/todo/lists/${DEFAULT_LIST}/tasks/t1`);
+		expect(path).not.toContain("?");
+	});
+
+	// The property that matters most for an irreversible operation.
+	it("deletes nothing when a title is ambiguous", async () => {
+		routeTasks({
+			[DEFAULT_LIST]: [
+				task("t1", "Send the Rise invoice"),
+				task("t2", "Chase the Rise invoice payment"),
+			],
+		});
+
+		const result = (await deleteTaskImpl(env, { title: "invoice" })) as {
+			success: boolean;
+			reason: string;
+			matches: Array<{ id: string }>;
+		};
+
+		expect(graphDelete).not.toHaveBeenCalled();
+		expect(result.success).toBe(false);
+		expect(result.reason).toBe("ambiguous");
+		expect(result.matches.map(m => m.id)).toEqual(["t1", "t2"]);
+	});
+
+	it("fails loudly when nothing matches", async () => {
+		routeTasks({ [DEFAULT_LIST]: [task("t1", "Book flights")] });
+
+		await expect(deleteTaskImpl(env, { title: "nonexistent" })).rejects.toThrow(
+			/No open task matching/,
+		);
+		expect(graphDelete).not.toHaveBeenCalled();
+	});
+});
+
+describe("delete_task_list", () => {
+	it("refuses the default list", async () => {
+		routeTasks({});
+
+		await expect(deleteTaskListImpl(env, { list_id: DEFAULT_LIST })).rejects.toThrow(
+			/default To Do list and cannot be deleted/,
+		);
+		expect(graphDelete).not.toHaveBeenCalled();
+	});
+
+	// Deleting a list takes its tasks with it, with no warning from Graph and
+	// no undo. The count has to be shown before that happens, not after.
+	it("refuses a non-empty list and reports what would be destroyed", async () => {
+		routeTasks({
+			[FLAGGED_LIST]: [task("t1", "Reply to Bruce"), task("t2", "Old thing", "completed")],
+		});
+
+		const result = (await deleteTaskListImpl(env, { name: "flagged" })) as {
+			success: boolean;
+			reason: string;
+			task_count: number;
+			open_task_count: number;
+		};
+
+		expect(graphDelete).not.toHaveBeenCalled();
+		expect(result.success).toBe(false);
+		expect(result.reason).toBe("not_empty");
+		expect(result.task_count).toBe(2);
+		expect(result.open_task_count).toBe(1);
+	});
+
+	it("deletes a non-empty list once force is given", async () => {
+		routeTasks({ [FLAGGED_LIST]: [task("t1", "Reply to Bruce")] });
+
+		const result = (await deleteTaskListImpl(env, { name: "flagged", force: true })) as {
+			success: boolean;
+			deleted_task_count: number;
+		};
+
+		expect(result.success).toBe(true);
+		expect(result.deleted_task_count).toBe(1);
+		const [, path] = vi.mocked(graphDelete).mock.calls[0] as [unknown, string];
+		expect(path).toBe(`/me/todo/lists/${FLAGGED_LIST}`);
+	});
+
+	it("deletes an empty list without force", async () => {
+		routeTasks({});
+
+		const result = (await deleteTaskListImpl(env, { name: "flagged" })) as {
+			success: boolean;
+		};
+
+		expect(result.success).toBe(true);
+		expect(graphDelete).toHaveBeenCalledTimes(1);
+	});
+
+	it("deletes nothing when a name is ambiguous", async () => {
+		vi.mocked(graphGet).mockImplementation(async (_e: unknown, path: string) => {
+			if (path === "/me/todo/lists") {
+				return {
+					value: [
+						{ id: "a", displayName: "Work" },
+						{ id: "b", displayName: "Work archive" },
+					],
+				};
+			}
+			return { value: [] };
+		});
+
+		const result = (await deleteTaskListImpl(env, { name: "work" })) as {
+			success: boolean;
+			reason: string;
+		};
+
+		expect(graphDelete).not.toHaveBeenCalled();
+		expect(result.success).toBe(false);
+		expect(result.reason).toBe("ambiguous");
+	});
+
+	it("fails loudly when no list matches", async () => {
+		routeTasks({});
+
+		await expect(deleteTaskListImpl(env, { name: "nonexistent" })).rejects.toThrow(
+			/No task list matching/,
+		);
 	});
 });

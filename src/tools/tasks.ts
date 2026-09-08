@@ -1,6 +1,12 @@
 import { ToolError, defineTools } from "@bashco/mcp-toolkit";
 import { z } from "zod";
-import { graphGet, graphGetNextLink, graphPatch, graphPost } from "../graph.js";
+import {
+	graphDelete,
+	graphGet,
+	graphGetNextLink,
+	graphPatch,
+	graphPost,
+} from "../graph.js";
 import { sanitizeTaskList, sanitizeTaskLists } from "../sanitize.js";
 import type { Env } from "../types.js";
 
@@ -216,10 +222,18 @@ export function matchTasks(
 		.map((t) => toHit(t, list));
 }
 
-export async function completeTaskImpl(
+type TaskQuery = { task_id?: string; title?: string; list_id?: string };
+
+// Narrow a query down to exactly one task, or explain why it couldn't.
+// Shared by complete_task and delete_task so the two can't drift: whatever
+// safety the matching gives one of them, it gives both.
+//
+// `verb` only shapes the message ("Nothing was deleted"), never the rule.
+async function resolveOneTask(
 	env: Env,
-	args: { task_id?: string; title?: string; list_id?: string },
-): Promise<unknown> {
+	args: TaskQuery,
+	verb: string,
+): Promise<{ hit: TaskHit } | { ambiguous: TaskHit[]; message: string }> {
 	const lists = await resolveSearchLists(env, args.list_id);
 	if (lists.length === 0) {
 		throw new Error("No To Do lists found on this account.");
@@ -248,19 +262,31 @@ export async function completeTaskImpl(
 		);
 	}
 
-	// Ambiguous: complete nothing, hand back the candidates so the next call can
+	// Ambiguous: touch nothing, hand back the candidates so the next call can
 	// pick one by id. Not an error — the caller asked a reasonable question and
 	// this is the answer.
 	if (matches.length > 1) {
 		return {
-			success: false,
-			reason: "ambiguous",
-			message: `"${args.title}" matches ${matches.length} open tasks. Nothing was completed — call again with task_id (and list_id) to choose one.`,
-			matches,
+			ambiguous: matches,
+			message: `"${args.title}" matches ${matches.length} open tasks. Nothing was ${verb} — call again with task_id (and list_id) to choose one.`,
 		};
 	}
 
-	const hit = matches[0] as TaskHit;
+	return { hit: matches[0] as TaskHit };
+}
+
+export async function completeTaskImpl(env: Env, args: TaskQuery): Promise<unknown> {
+	const resolved = await resolveOneTask(env, args, "completed");
+	if ("ambiguous" in resolved) {
+		return {
+			success: false,
+			reason: "ambiguous",
+			message: resolved.message,
+			matches: resolved.ambiguous,
+		};
+	}
+
+	const hit = resolved.hit;
 
 	if (hit.status === "completed") {
 		return {
@@ -327,6 +353,111 @@ export async function createTaskListImpl(
 	};
 }
 
+// ── Deleting ──────────────────────────────────────────────────────────────────
+// The only irreversible operations here. Both reuse the matching rules above:
+// an ambiguous title deletes nothing and returns the candidates, which matters
+// far more for delete than it does for complete.
+
+export async function deleteTaskImpl(env: Env, args: TaskQuery): Promise<unknown> {
+	const resolved = await resolveOneTask(env, args, "deleted");
+	if ("ambiguous" in resolved) {
+		return {
+			success: false,
+			reason: "ambiguous",
+			message: resolved.message,
+			matches: resolved.ambiguous,
+		};
+	}
+
+	const hit = resolved.hit;
+	await graphDelete(env, `/me/todo/lists/${hit.list_id}/tasks/${hit.id}`);
+
+	return {
+		success: true,
+		message: `Deleted "${hit.title}" from ${hit.list_name}.`,
+		task: hit,
+	};
+}
+
+interface RawListRow {
+	id?: string;
+	displayName?: string;
+	wellknownListName?: string;
+}
+
+// Matching for lists mirrors matchTasks: exact on id, case-insensitive
+// substring on name. Exported for tests.
+export function matchLists(lists: RawListRow[], query: { list_id?: string; name?: string }) {
+	if (query.list_id) return lists.filter((l) => l.id === query.list_id);
+
+	const needle = (query.name ?? "").trim().toLowerCase();
+	if (!needle) return [];
+	return lists.filter((l) => (l.displayName ?? "").toLowerCase().includes(needle));
+}
+
+export async function deleteTaskListImpl(
+	env: Env,
+	args: { list_id?: string; name?: string; force?: boolean },
+): Promise<unknown> {
+	const lists = (await collectPages(env, "/me/todo/lists")) as RawListRow[];
+	const matches = matchLists(lists, args);
+
+	if (matches.length === 0) {
+		throw ToolError.validation(
+			args.list_id
+				? `No task list with id ${args.list_id}.`
+				: `No task list matching "${args.name}". Names are matched as a case-insensitive substring; use list_task_lists to see them.`,
+		);
+	}
+
+	if (matches.length > 1) {
+		return {
+			success: false,
+			reason: "ambiguous",
+			message: `"${args.name}" matches ${matches.length} lists. Nothing was deleted — call again with list_id to choose one.`,
+			matches: sanitizeTaskLists(matches),
+		};
+	}
+
+	const list = matches[0] as RawListRow;
+
+	// Graph refuses this anyway; saying so plainly beats surfacing its error.
+	if (list.wellknownListName === "defaultList") {
+		throw ToolError.validation(
+			`"${list.displayName}" is the default To Do list and cannot be deleted.`,
+		);
+	}
+
+	// Deleting a list takes every task in it, and Graph gives no warning and no
+	// undo. Counting first turns a silent bulk delete into one the caller had to
+	// mean — `force` is the "yes, and its contents too".
+	const tasks = (await collectPages(
+		env,
+		`/me/todo/lists/${list.id}/tasks`,
+	)) as RawTaskRow[];
+	const open = tasks.filter((t) => t.status !== "completed").length;
+
+	if (tasks.length > 0 && !args.force) {
+		return {
+			success: false,
+			reason: "not_empty",
+			message: `"${list.displayName}" holds ${tasks.length} task${tasks.length === 1 ? "" : "s"} (${open} still open). Deleting the list deletes them too, permanently. Call again with force: true to go ahead.`,
+			task_count: tasks.length,
+			open_task_count: open,
+			list: sanitizeTaskLists([list])[0],
+		};
+	}
+
+	await graphDelete(env, `/me/todo/lists/${list.id}`);
+
+	return {
+		success: true,
+		message: `Deleted list "${list.displayName}"${tasks.length > 0 ? ` and its ${tasks.length} task${tasks.length === 1 ? "" : "s"}` : ""}.`,
+		deleted_task_count: tasks.length,
+		list: sanitizeTaskLists([list])[0],
+	};
+}
+
 export const tasksTools = defineTools<Env>({
 	list_task_lists: {
 		description:
@@ -364,6 +495,38 @@ export const tasksTools = defineTools<Env>({
 			importance: z.enum(["low", "normal", "high"]).optional(),
 		}),
 		handler: (env, args) => createTaskImpl(env, args),
+	},
+
+	delete_task: {
+		description:
+			"Permanently delete a Microsoft To Do task. Identify it with `title` (case-insensitive substring of an open task) or `task_id`. `list_id` is optional: without it every list is searched. An ambiguous title deletes nothing and returns the candidates. This cannot be undone — prefer complete_task for work that is finished rather than mistaken.",
+		schema: z
+			.object({
+				task_id: taskListIdSchema.optional(),
+				title: z.string().min(1).max(256).optional(),
+				list_id: taskListIdSchema.optional(),
+			})
+			.refine(
+				(v) => [v.task_id, v.title].filter(Boolean).length === 1,
+				"Provide exactly one of: task_id, title.",
+			),
+		handler: (env, args) => deleteTaskImpl(env, args),
+	},
+
+	delete_task_list: {
+		description:
+			"Permanently delete a Microsoft To Do list. Identify it with `name` (case-insensitive substring) or `list_id`. Deleting a list also deletes every task in it, so a non-empty list is refused unless you pass force: true — the refusal reports how many tasks would go. The default list cannot be deleted. An ambiguous name deletes nothing and returns the candidates.",
+		schema: z
+			.object({
+				list_id: taskListIdSchema.optional(),
+				name: z.string().min(1).max(256).optional(),
+				force: z.boolean().optional(),
+			})
+			.refine(
+				(v) => [v.list_id, v.name].filter(Boolean).length === 1,
+				"Provide exactly one of: list_id, name.",
+			),
+		handler: (env, args) => deleteTaskListImpl(env, args),
 	},
 
 	complete_task: {

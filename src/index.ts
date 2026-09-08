@@ -31,7 +31,7 @@ const SERVER_NAME = "outlook-mcp";
  * It is deliberately NOT imported from package.json: that would inline the whole
  * manifest (dependency versions, scripts) into the deployed Worker bundle.
  */
-export const SERVER_VERSION = "2.5.0";
+export const SERVER_VERSION = "2.6.0";
 const SUPPORTED_PROTOCOL_VERSIONS = ["2024-11-05", "2025-03-26"] as const;
 const DEFAULT_PROTOCOL_VERSION: (typeof SUPPORTED_PROTOCOL_VERSIONS)[number] =
 	"2024-11-05";
