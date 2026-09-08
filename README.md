@@ -6,16 +6,35 @@ Fork this repo, deploy to your own Cloudflare account, register a Microsoft Azur
 
 Built on [`@bashco/mcp-toolkit`](https://github.com/doublebash/mcp-toolkit) — OAuth, per-client bearer tokens, rate limiting, structured logging, typed tool dispatch are all handled by the shared library.
 
-## What Claude gets — 39 tools across 7 domains
+## What Claude gets — 43 tools across 7 domains
 
-- **Mail**: list emails, read email, search, reply, forward, delete, send, move between folders, create draft, update draft, send draft, schedule send
-- **Calendar**: list events, list event occurrences, create, update, delete, cancel event, respond to event
-- **Contacts**: list, create contact, update contact
-- **Tasks**: list task lists, create/delete task list, list tasks, create task, complete task, delete task (by title or id)
-- **Files**: list files, share file
-- **Teams meetings**: list recent recordings (the discovery starting point — finds meetings that have content in the past N days, no inputs needed), find online meeting, list meeting recordings, list meeting transcripts, get transcript content. Each per-meeting tool accepts any of `meeting_id`, `calendar_event_id`, or `join_url` — so scheduled meetings (resolved via event), ad-hoc / Meet-now calls (resolved via join URL pasted from the Teams chat), and direct id lookups all work.
-- **Conversation**: get conversation (full thread)
-- **Settings**: get mailbox settings, set out-of-office
+- **Mail** (15): list emails, read email, send, reply, forward, delete, move between folders, create draft, update draft, send draft, schedule send, get conversation (full thread), plus threaded reply / reply-all / forward drafts that preserve the conversation for review before sending
+- **Calendar** (7): list events, list event occurrences, create, update, delete, cancel, respond to event
+- **Contacts** (3): list, create, update
+- **Tasks** (7): list task lists, create task list, delete task list, list tasks, create task, complete task, delete task
+- **Files** (4): list files, get OneDrive file info, upload to OneDrive, share file
+- **Teams meetings** (5): list recent recordings (the discovery starting point — finds meetings that have content in the past N days, no inputs needed), find online meeting, list meeting recordings, list meeting transcripts, get transcript content
+- **Settings** (2): get mailbox settings, set out-of-office
+
+### Notes on a few of them
+
+**Teams meetings.** Each per-meeting tool accepts any of `meeting_id`, `calendar_event_id`, or `join_url` — so scheduled meetings (resolved via the event), ad-hoc / Meet-now calls (resolved via a join URL pasted from the Teams chat), and direct id lookups all work.
+
+`list_recent_meeting_recordings` also returns a `skipped` breakdown of the meetings it examined but did not return, so an empty result explains itself:
+
+| reason | meaning |
+| --- | --- |
+| `no_content` | ordinary — nobody recorded the meeting |
+| `forbidden` | ordinary — organised in another tenant, so Graph won't serve its artifacts |
+| `no_join_url` | worth investigating — no Teams link found on the event |
+| `unresolved_meeting` | worth investigating — link found, but no matching online meeting |
+| `error` | worth investigating — an unexpected failure |
+
+**Tasks.** `complete_task` and `delete_task` take either a `task_id` or a `title`, matched as a case-insensitive substring against open tasks. A title matching more than one task acts on **none** of them and returns the candidates instead, so a vague phrase can't tick off or destroy the wrong item. Without a `list_id` every list is searched, not just the default — the opposite default to `create_task`, which needs a single destination.
+
+`delete_task_list` deletes every task in the list along with it, so a non-empty list is refused unless you pass `force: true`; the refusal reports how many tasks would go and how many are still open. The default list can't be deleted at all.
+
+`create_task_list` returns an existing list of the same name rather than creating a duplicate — check the `created` field to tell the two apart.
 
 Full live catalogue at the `tools/list` MCP endpoint after deploy.
 
