@@ -36,7 +36,7 @@ Built on [`@bashco/mcp-toolkit`](https://github.com/doublebash/mcp-toolkit) — 
 
 `create_task_list` returns an existing list of the same name rather than creating a duplicate — check the `created` field to tell the two apart.
 
-Full live catalogue at the `tools/list` MCP endpoint after deploy.
+Full live catalogue at the `tools/list` MCP endpoint after deploy. Release history in [CHANGELOG.md](CHANGELOG.md).
 
 ## How auth works
 
