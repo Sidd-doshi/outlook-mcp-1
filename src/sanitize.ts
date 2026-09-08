@@ -252,9 +252,14 @@ interface RawTask {
   createdDateTime?: string;
 }
 
-export function sanitizeTaskList(items: unknown[]): unknown[] {
+// `listId` is echoed onto every task because a To Do task id is not addressable
+// on its own — every write is PATCH/DELETE /me/todo/lists/{listId}/tasks/{id}.
+// Without it a caller that reads a task here has to guess which list it came
+// from before it can act on it.
+export function sanitizeTaskList(items: unknown[], listId?: string): unknown[] {
   return (items as RawTask[]).map(item => ({
     id: item.id,
+    ...(listId ? { list_id: listId } : {}),
     title: item.title,
     status: item.status,
     importance: item.importance,
