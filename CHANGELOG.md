@@ -13,6 +13,33 @@ together, commits, and tags. Add to Unreleased as you go.
 
 ## Unreleased
 
+### Added
+
+Five OneDrive tools that together cover a document workflow with no desktop
+Office install: produce a .docx anywhere, upload it, convert it to PDF with
+Microsoft's renderer, file it, and attach it to a draft.
+
+- `convert_to_pdf` — render a docx/pptx/xlsx (and rtf, odt, html, md and more)
+  to PDF via Graph `…/content?format=pdf` and save it to OneDrive, beside the
+  source by default. Fonts and layout match Word, which a PDF produced on a
+  Linux machine without the document's fonts would not.
+- `download_onedrive_file` — read a file's contents as base64, with a decoded
+  `text` field for text formats. 5 MB default cap, 10 MB maximum.
+- `create_folder` — create a folder path, including missing parents. Safe to
+  repeat; a file in the way is reported rather than renamed around.
+- `copy_item` — copy a file or folder into another folder, optionally renamed.
+  Polls Graph's async monitor so the common case returns the finished item.
+  Defaults to `conflict_behavior: "rename"` so nothing is overwritten by
+  accident.
+- `upload_large_file` — chunked upload through a Graph upload session, up to
+  25 MB. Chunks are 320 KiB-aligned, and a failed chunk cancels the session.
+
+### Changed
+
+- `upload_onedrive_file`'s over-4 MB error now points at `upload_large_file`.
+- The raw Graph helpers share one error builder, and a new `graphPostAccepted`
+  handles `202 Accepted` operations that answer with a monitor URL.
+
 ## 2.6.0 — 2026-09-08
 
 ### Added

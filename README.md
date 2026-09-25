@@ -6,13 +6,13 @@ Fork this repo, deploy to your own Cloudflare account, register a Microsoft Azur
 
 Built on [`@bashco/mcp-toolkit`](https://github.com/doublebash/mcp-toolkit) — OAuth, per-client bearer tokens, rate limiting, structured logging, typed tool dispatch are all handled by the shared library.
 
-## What Claude gets — 43 tools across 7 domains
+## What Claude gets — 48 tools across 7 domains
 
 - **Mail** (15): list emails, read email, send, reply, forward, delete, move between folders, create draft, update draft, send draft, schedule send, get conversation (full thread), plus threaded reply / reply-all / forward drafts that preserve the conversation for review before sending
 - **Calendar** (7): list events, list event occurrences, create, update, delete, cancel, respond to event
 - **Contacts** (3): list, create, update
 - **Tasks** (7): list task lists, create task list, delete task list, list tasks, create task, complete task, delete task
-- **Files** (4): list files, get OneDrive file info, upload to OneDrive, share file
+- **Files** (9): list files, get OneDrive file info, download a file's contents, upload to OneDrive (simple, up to 4 MB), upload a large file (chunked, up to 25 MB), convert a document to PDF, create a folder path, copy a file or folder, share file
 - **Teams meetings** (5): list recent recordings (the discovery starting point — finds meetings that have content in the past N days, no inputs needed), find online meeting, list meeting recordings, list meeting transcripts, get transcript content
 - **Settings** (2): get mailbox settings, set out-of-office
 
@@ -35,6 +35,14 @@ Built on [`@bashco/mcp-toolkit`](https://github.com/doublebash/mcp-toolkit) — 
 `delete_task_list` deletes every task in the list along with it, so a non-empty list is refused unless you pass `force: true`; the refusal reports how many tasks would go and how many are still open. The default list can't be deleted at all.
 
 `create_task_list` returns an existing list of the same name rather than creating a duplicate — check the `created` field to tell the two apart.
+
+**Files and documents.** These tools cover a whole document workflow without a desktop Office install: generate a .docx anywhere, `upload_onedrive_file` it, `convert_to_pdf` it, then attach the PDF to an email draft with `onedrive_path`.
+
+- `convert_to_pdf` uses Microsoft's own renderer (Graph `…/content?format=pdf`), so fonts and layout match Word even when the .docx was produced on a machine without Word or its fonts. The PDF is saved beside the source unless you give an `output_path`.
+- `create_folder` works like `mkdir -p`: it creates any missing levels and leaves existing ones alone, so it's safe to call on every run.
+- `copy_item` is asynchronous in Graph. The tool waits briefly and normally returns the finished item; a very large copy may come back as `in_progress`. It defaults to `conflict_behavior: "rename"`, so it never overwrites unless you ask it to.
+- `download_onedrive_file` returns bytes as base64 (plus decoded `text` for text formats), capped at 5 MB by default and 10 MB at most, because the content lands in the conversation. To send a file to someone, attach it with `onedrive_path` instead.
+- Files over 4 MB go through a Graph upload session. `upload_large_file` does this directly, and `convert_to_pdf` switches to it automatically for large PDFs.
 
 Full live catalogue at the `tools/list` MCP endpoint after deploy. Release history in [CHANGELOG.md](CHANGELOG.md).
 
