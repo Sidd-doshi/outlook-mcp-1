@@ -30,6 +30,7 @@ import {
 	createFolderImpl,
 	downloadOneDriveFileImpl,
 	extensionOf,
+	formatBytes,
 	pdfPathFor,
 	uploadLargeFileImpl,
 } from "../src/tools/files.js";
@@ -70,6 +71,13 @@ describe("path helpers", () => {
 		expect(extensionOf("a/b/Plan.DOCX")).toBe("docx");
 		expect(extensionOf("a/.hidden")).toBe("");
 		expect(extensionOf("noext")).toBe("");
+	});
+
+	it("formats sizes readably at every scale", () => {
+		expect(formatBytes(50_000)).toBe("49 KB");
+		expect(formatBytes(87_929)).toBe("86 KB");
+		expect(formatBytes(200)).toBe("1 KB");
+		expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
 	});
 
 	it("round-trips base64", () => {
@@ -221,7 +229,7 @@ describe("download_onedrive_file", () => {
 		vi.mocked(graphGet).mockResolvedValueOnce({ name: "Clients", folder: { childCount: 3 } });
 		await expect(downloadOneDriveFileImpl(env, { item_path: "Clients" })).rejects.toThrow(/is a folder/);
 		vi.mocked(graphGet).mockResolvedValueOnce({ name: "big.pdf", size: 6 * 1024 * 1024, file: { mimeType: "application/pdf" } });
-		await expect(downloadOneDriveFileImpl(env, { item_path: "big.pdf" })).rejects.toThrow(/over the 5\.0 MB limit/);
+		await expect(downloadOneDriveFileImpl(env, { item_path: "big.pdf" })).rejects.toThrow(/is 6\.0 MB, over the 5\.0 MB limit/);
 		expect(graphRequestRaw).not.toHaveBeenCalled();
 	});
 });
