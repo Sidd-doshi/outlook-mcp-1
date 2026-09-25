@@ -165,6 +165,25 @@ export async function graphDelete(env: Env, path: string): Promise<unknown> {
 	return graphFetch(env, { method: "DELETE", path });
 }
 
+// Shape a non-2xx raw response into the same ToolError the JSON client raises.
+async function rawGraphError(response: Response): Promise<ToolError> {
+	let errMsg = response.statusText;
+	let errCode: string | undefined;
+	try {
+		const data = (await response.clone().json()) as GraphErrorEnvelope;
+		errMsg = data.error?.message ?? errMsg;
+		errCode = data.error?.code;
+	} catch {
+		// not JSON
+	}
+	return new ToolError({
+		userMessage: `Outlook error ${response.status}: ${errCode ?? errMsg}`,
+		internalMessage: `Graph ${response.status}: ${errCode ?? ""} ${errMsg}`,
+		status: response.status,
+		upstreamName: "Graph",
+	});
+}
+
 // ── Raw-response variant ──────────────────────────────────────────────────────
 // Used when we need the binary body (OneDrive attachment downloads). The
 // toolkit's createUpstreamClient drops non-JSON responses on the floor, so we
@@ -179,23 +198,7 @@ export async function graphRequestRaw(env: Env, path: string): Promise<Response>
 		redirect: "follow",
 	});
 
-	if (!response.ok) {
-		let errMsg = response.statusText;
-		let errCode: string | undefined;
-		try {
-			const data = (await response.clone().json()) as GraphErrorEnvelope;
-			errMsg = data.error?.message ?? errMsg;
-			errCode = data.error?.code;
-		} catch {
-			// not JSON
-		}
-		throw new ToolError({
-			userMessage: `Outlook error ${response.status}: ${errCode ?? errMsg}`,
-			internalMessage: `Graph ${response.status}: ${errCode ?? ""} ${errMsg}`,
-			status: response.status,
-			upstreamName: "Graph",
-		});
-	}
+	if (!response.ok) throw await rawGraphError(response);
 
 	return response;
 }
@@ -222,23 +225,31 @@ export async function graphPutBinary(
 		redirect: "follow",
 	});
 
-	if (!response.ok) {
-		let errMsg = response.statusText;
-		let errCode: string | undefined;
-		try {
-			const data = (await response.clone().json()) as GraphErrorEnvelope;
-			errMsg = data.error?.message ?? errMsg;
-			errCode = data.error?.code;
-		} catch {
-			// not JSON
-		}
-		throw new ToolError({
-			userMessage: `Outlook error ${response.status}: ${errCode ?? errMsg}`,
-			internalMessage: `Graph ${response.status}: ${errCode ?? ""} ${errMsg}`,
-			status: response.status,
-			upstreamName: "Graph",
-		});
-	}
+	if (!response.ok) throw await rawGraphError(response);
 
 	return response.json();
+}
+
+// POST for Graph's long-running operations (e.g. driveItem copy), which answer
+// `202 Accepted` with an empty body and a monitor URL in the Location header.
+// The toolkit client expects a JSON body, so this goes direct.
+export async function graphPostAccepted(
+	env: Env,
+	path: string,
+	body: unknown,
+): Promise<{ status: number; location: string | null }> {
+	const token = await getValidAccessToken(env);
+	const url = `${GRAPH_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+	const response = await fetch(url, {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${token}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(body),
+	});
+
+	if (!response.ok) throw await rawGraphError(response);
+
+	return { status: response.status, location: response.headers.get("Location") };
 }
