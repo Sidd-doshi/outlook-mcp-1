@@ -247,6 +247,12 @@ type DriveItem = {
 
 type Conflict = "rename" | "replace" | "fail";
 
+// "87 KB", "4.2 MB": readable at every size (a 50 KB limit shouldn't read "0.0 MB").
+export function formatBytes(n: number): string {
+	if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+	return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
 export function extensionOf(path: string): string {
 	const name = path.split("/").pop() ?? "";
 	const dot = name.lastIndexOf(".");
@@ -389,14 +395,14 @@ export async function downloadOneDriveFileImpl(
 	}
 	if ((info.size ?? 0) > limit) {
 		throw ToolError.validation(
-			`"${args.item_path}" is ${((info.size ?? 0) / 1024 / 1024).toFixed(1)} MB, over the ${(limit / 1024 / 1024).toFixed(1)} MB limit. Raise max_bytes (up to ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB) or attach it to an email with onedrive_path instead.`,
+			`"${args.item_path}" is ${formatBytes(info.size ?? 0)}, over the ${formatBytes(limit)} limit. Raise max_bytes (up to ${formatBytes(MAX_DOWNLOAD_BYTES)}) or attach it to an email with onedrive_path instead.`,
 		);
 	}
 
 	const response = await graphRequestRaw(env, `/me/drive/root:/${encoded}:/content`);
 	const bytes = new Uint8Array(await response.arrayBuffer());
 	if (bytes.byteLength > limit) {
-		throw ToolError.validation(`"${args.item_path}" is larger than the ${(limit / 1024 / 1024).toFixed(1)} MB limit.`);
+		throw ToolError.validation(`"${args.item_path}" is larger than the ${formatBytes(limit)} limit.`);
 	}
 
 	const mime = info.file?.mimeType ?? "application/octet-stream";
