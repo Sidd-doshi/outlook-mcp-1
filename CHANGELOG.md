@@ -40,6 +40,11 @@ Microsoft's renderer, file it, and attach it to a draft.
 - The raw Graph helpers share one error builder, and a new `graphPostAccepted`
   handles `202 Accepted` operations that answer with a monitor URL.
 
+### Fixed
+
+- `download_onedrive_file` size errors read in KB below 1 MB. A 50 KB
+  `max_bytes` used to report "over the 0.0 MB limit" (found in the live test).
+
 ## 2.6.0 — 2026-09-08
 
 ### Added
