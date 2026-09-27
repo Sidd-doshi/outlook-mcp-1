@@ -1,6 +1,6 @@
 {
 	"name": "outlook-mcp",
-	"version": "2.6.0",
+	"version": "2.7.0",
 	"description": "Cloudflare Workers Model Context Protocol server bridging Claude to Microsoft Outlook + Teams — email (incl. threaded draft replies/reply-all/forward that preserve the conversation for later review/send), calendar, contacts, tasks (incl. completing and deleting tasks by title, creating and deleting lists), files (incl. OneDrive simple and chunked upload, download, PDF conversion via Microsoft's renderer, folder creation and copy), Teams meeting recordings + transcripts (incl. recent-recording discovery, ad-hoc / Meet-now, server-side subject search). 48 tools across 7 domains. Proxied Microsoft Graph OAuth 2.0. Built on @bashco/mcp-toolkit.",
 	"keywords": [
 		"mcp",

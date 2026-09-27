@@ -11,7 +11,7 @@ Releases are cut with `npm run release <version>`, which turns the **Unreleased*
 section below into a dated heading, bumps `package.json` and `SERVER_VERSION`
 together, commits, and tags. Add to Unreleased as you go.
 
-## Unreleased
+## 2.7.0 — 2026-09-27
 
 ### Added
 
