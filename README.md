@@ -6,9 +6,9 @@ Fork this repo, deploy to your own Cloudflare account, register a Microsoft Azur
 
 Built on [`@bashco/mcp-toolkit`](https://github.com/doublebash/mcp-toolkit) — OAuth, per-client bearer tokens, rate limiting, structured logging, typed tool dispatch are all handled by the shared library.
 
-## What Claude gets — 48 tools across 7 domains
+## What Claude gets — 50 tools across 7 domains
 
-- **Mail** (15): list emails, read email, send, reply, forward, delete, move between folders, create draft, update draft, send draft, schedule send, get conversation (full thread), plus threaded reply / reply-all / forward drafts that preserve the conversation for review before sending
+- **Mail** (17): list emails, read email, send, reply, forward, delete, move between folders, create draft, update draft, send draft, schedule send, get conversation (full thread), list a received email's attachments, save an attachment to OneDrive, plus threaded reply / reply-all / forward drafts that preserve the conversation for review before sending
 - **Calendar** (7): list events, list event occurrences, create, update, delete, cancel, respond to event
 - **Contacts** (3): list, create, update
 - **Tasks** (7): list task lists, create task list, delete task list, list tasks, create task, complete task, delete task
@@ -35,6 +35,8 @@ Built on [`@bashco/mcp-toolkit`](https://github.com/doublebash/mcp-toolkit) — 
 `delete_task_list` deletes every task in the list along with it, so a non-empty list is refused unless you pass `force: true`; the refusal reports how many tasks would go and how many are still open. The default list can't be deleted at all.
 
 `create_task_list` returns an existing list of the same name rather than creating a duplicate — check the `created` field to tell the two apart.
+
+**Attachments on received email.** `list_email_attachments` shows what's attached (name, type, size, whether it's inline like a signature logo, and whether it's a file, an attached email, or a cloud link) without returning contents. `save_email_attachment` copies one file straight into OneDrive, so the bytes never pass through the conversation. It picks the attachment by name or id, or automatically when there's exactly one non-inline file, and refuses to guess between several. The file name is cleaned of characters OneDrive rejects, executables are refused, and it renames rather than overwrites by default. From OneDrive the agent can read the file with its own tooling, or attach it onward with `onedrive_path`.
 
 **Files and documents.** These tools cover a whole document workflow without a desktop Office install: generate a .docx anywhere, `upload_onedrive_file` it, `convert_to_pdf` it, then attach the PDF to an email draft with `onedrive_path`.
 

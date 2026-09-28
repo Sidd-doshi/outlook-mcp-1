@@ -11,6 +11,30 @@ Releases are cut with `npm run release <version>`, which turns the **Unreleased*
 section below into a dated heading, bumps `package.json` and `SERVER_VERSION`
 together, commits, and tags. Add to Unreleased as you go.
 
+## Unreleased
+
+### Added
+
+Reading attachments on received email, so an agent can pick up files that
+arrive by email (for example a form's PDF export) without them passing
+through the conversation.
+
+- `list_email_attachments` — each attachment's id, name, content type, size,
+  inline flag (signature logos and the like), and kind: file, item (an
+  attached email or event) or reference (a cloud link). No contents.
+- `save_email_attachment` — copy one file attachment straight into a OneDrive
+  folder. Chooses by `attachment_name` (exact, case-insensitive) or
+  `attachment_id`, or automatically when the email has exactly one
+  non-inline file; with several candidates it lists them and saves nothing.
+  File names from the sender are cleaned of characters OneDrive or the path
+  rules reject, executables are refused, files up to 25 MB are accepted
+  (upload session above 4 MB), and `conflict_behavior` defaults to `rename`.
+
+### Changed
+
+- `files.ts` exports its path schema, blocked-extension rule and upload
+  helper so other tool modules share them.
+
 ## 2.7.0 — 2026-09-27
 
 ### Added

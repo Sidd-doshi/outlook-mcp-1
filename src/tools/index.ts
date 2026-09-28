@@ -1,5 +1,6 @@
 import { ToolError } from "@bashco/mcp-toolkit";
 import type { Env } from "../types.js";
+import { attachmentTools } from "./attachments.js";
 import { calendarTools } from "./calendar.js";
 import { contactsTools } from "./contacts.js";
 import { emailTools } from "./email.js";
@@ -10,6 +11,7 @@ import { tasksTools } from "./tasks.js";
 
 const ALL_TOOL_BUNDLES = [
 	emailTools,
+	attachmentTools,
 	calendarTools,
 	contactsTools,
 	tasksTools,
