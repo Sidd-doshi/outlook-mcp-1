@@ -11,6 +11,8 @@ Releases are cut with `npm run release <version>`, which turns the **Unreleased*
 section below into a dated heading, bumps `package.json` and `SERVER_VERSION`
 together, commits, and tags. Add to Unreleased as you go.
 
+## Unreleased
+
 ## 2.8.0 — 2026-09-28
 
 ### Added
@@ -34,6 +36,15 @@ through the conversation.
 
 - `files.ts` exports its path schema, blocked-extension rule and upload
   helper so other tool modules share them.
+
+### Verified
+
+Live-tested against a real inbox before release. On an email carrying a
+form's PDF export plus two inline signature images, `list_email_attachments`
+reported all three with the images flagged inline. `save_email_attachment`,
+given no name or id, skipped the images, picked the PDF and saved it to
+OneDrive; the saved file matched the original byte for byte (15,115 bytes),
+and its text extracted cleanly with `pdftotext`.
 
 ## 2.7.0 — 2026-09-27
 
@@ -68,6 +79,15 @@ Microsoft's renderer, file it, and attach it to a draft.
 
 - `download_onedrive_file` size errors read in KB below 1 MB. A 50 KB
   `max_bytes` used to report "over the 0.0 MB limit" (found in the live test).
+
+### Verified
+
+Live-tested against a real OneDrive before release. `create_folder` built a
+three-level path and was a no-op on a second call. `convert_to_pdf` turned a
+generated .docx into a 3-page PDF identical in layout to Word's own export,
+with the document's fonts embedded. `copy_item` filed it into another folder
+and returned the finished item, and `download_onedrive_file` read it back byte
+for byte. `upload_large_file` is covered by tests but wasn't exercised live.
 
 ## 2.6.0 — 2026-09-08
 
