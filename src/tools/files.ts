@@ -15,7 +15,7 @@ import { encodeOneDrivePath } from "./_shared.js";
 // parentheses, apostrophes, and a few common safe punctuation marks. Disallows
 // query/fragment chars (`?`, `#`, `&`, `=`) and control chars to prevent path
 // injection. Path is encoded per-segment before interpolation regardless.
-const pathSchema = z
+export const pathSchema = z
 	.string()
 	.min(1)
 	.max(1024)
@@ -65,7 +65,7 @@ export const UPLOAD_ALLOWED_MIME_TYPES = new Set([
 ]);
 
 // Executable extensions blocked regardless of declared MIME type.
-const DANGEROUS_FILENAME_EXT = /\.(exe|bat|cmd|scr|msi|dll|ps1|vbs|com|cpl|jar|app)$/i;
+export const DANGEROUS_FILENAME_EXT = /\.(exe|bat|cmd|scr|msi|dll|ps1|vbs|com|cpl|jar|app)$/i;
 
 // ── Pure helpers (exported for unit tests) ────────────────────────────────────
 
@@ -345,7 +345,7 @@ export async function uploadViaSession(
 }
 
 // Simple upload up to 4 MB, upload session above that.
-async function uploadBytes(
+export async function uploadBytes(
 	env: Env,
 	itemPath: string,
 	bytes: Uint8Array,
