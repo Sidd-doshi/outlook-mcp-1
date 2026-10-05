@@ -1,0 +1,32 @@
+# A tag must point at a commit whose package.json carries that exact version.
+#
+# The release script guarantees this by construction; this catches a tag created
+# by hand. It matters because the tag is the only reliable answer to "which
+# release is this fix in" — package.json at an arbitrary commit is not, as
+# b450955 showed: the Teams transcript fix sits in a commit reading 2.4.0 but
+# shipped in 2.5.0.
+name: Verify release tag
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Tag must match package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} points at a commit whose package.json says ${PKG}."
+            echo "Cut releases with 'npm run release <version>' so the bump and the tag are the same commit."
+            exit 1
+          fi
+          echo "✓ ${GITHUB_REF_NAME} matches package.json ${PKG}"
