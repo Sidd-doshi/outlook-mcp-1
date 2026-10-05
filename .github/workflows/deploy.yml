@@ -26,8 +26,19 @@ jobs:
       - name: Run tests
         run: npx vitest run
 
-      - name: Deploy to Cloudflare Workers
+      # Both environments must be named explicitly. A bare `wrangler deploy` builds
+      # the top-level wrangler.jsonc block, which carries the upstream maintainer's
+      # KV namespace and client ID, and updates neither live worker.
+      - name: Deploy future-comms
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env future-comms
+
+      - name: Deploy total-telco
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --env total-telco
